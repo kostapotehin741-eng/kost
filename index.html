@@ -1,0 +1,1733 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CINDERFALL: Хрупкий Спуск</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            color: #fff;
+            overflow: hidden;
+        }
+        
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 0 50px rgba(255, 69, 0, 0.3);
+        }
+        
+        #game {
+            display: block;
+            background: #0d0d0d;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            pointer-events: none;
+            font-size: 14px;
+            text-shadow: 2px 2px 4px #000;
+        }
+        
+        .bar {
+            margin: 5px 0;
+            width: 200px;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #333;
+            position: relative;
+        }
+        
+        .bar-fill {
+            height: 100%;
+            transition: width 0.3s;
+        }
+        
+        .bar-label {
+            position: absolute;
+            top: 50%;
+            left: 5px;
+            transform: translateY(-50%);
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        #hp .bar-fill { background: linear-gradient(90deg, #8b0000, #ff0000); }
+        #heat .bar-fill { background: linear-gradient(90deg, #ff4500, #ffd700); }
+        #hunger .bar-fill { background: linear-gradient(90deg, #8b4513, #daa520); }
+        
+        #weapon-indicator {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border: 2px solid #555;
+            font-size: 12px;
+        }
+        
+        .durability-dot {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin: 0 2px;
+            background: #fff;
+            border-radius: 50%;
+        }
+        
+        .durability-dot.used { background: #333; }
+        .durability-dot.critical { background: #ff0000; animation: pulse 0.5s infinite; }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        #menu {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        
+        #menu h1 {
+            font-size: 48px;
+            color: #ff4500;
+            text-shadow: 0 0 20px #ff4500;
+            margin-bottom: 20px;
+        }
+        
+        #menu p {
+            font-size: 16px;
+            margin: 10px 0;
+            max-width: 600px;
+            text-align: center;
+            line-height: 1.6;
+        }
+        
+        #menu button {
+            margin-top: 30px;
+            padding: 15px 40px;
+            font-size: 20px;
+            background: #ff4500;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.3s;
+        }
+        
+        #menu button:hover {
+            background: #ff6347;
+            transform: scale(1.05);
+        }
+        
+        .controls {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #aaa;
+        }
+        
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="game" width="800" height="480"></canvas>
+        
+        <div id="ui" class="hidden">
+            <div id="hp" class="bar">
+                <div class="bar-fill" style="width: 100%"></div>
+                <span class="bar-label">HP: 100</span>
+            </div>
+            <div id="heat" class="bar">
+                <div class="bar-fill" style="width: 100%"></div>
+                <span class="bar-label">ТЕПЛО: 100</span>
+            </div>
+            <div id="hunger" class="bar">
+                <div class="bar-fill" style="width: 100%"></div>
+                <span class="bar-label">ГОЛОД: 100</span>
+            </div>
+            <div id="gold-display">Золото: 0</div>
+            <div id="floor-display">Этаж: 1</div>
+        </div>
+        
+        <div id="weapon-indicator" class="hidden">
+            <div id="weapon-name">Деревянный меч</div>
+            <div id="durability-dots">
+                <span class="durability-dot"></span>
+                <span class="durability-dot"></span>
+                <span class="durability-dot"></span>
+                <span class="durability-dot"></span>
+                <span class="durability-dot"></span>
+            </div>
+        </div>
+        
+        <div id="menu">
+            <h1>CINDERFALL</h1>
+            <p>Древнее подземелье ждёт тебя. Тепло уходит, оружие ломается, скелеты голодны.</p>
+            <p>Каждый удар твоего меча — на счету. Оружие сломается после 5-го удара, но пятый удар будет смертельным.</p>
+            <div class="controls">
+                <p>Управление: ← → движение, ↑ прыжок, X атака, E взаимодействие</p>
+            </div>
+            <button id="startBtn">НАЧАТЬ СПУСК</button>
+        </div>
+    </div>
+
+    <script>
+    // ============================================
+    // CINDERFALL - Complete Game Implementation
+    // ============================================
+
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const ui = document.getElementById('ui');
+    const menu = document.getElementById('menu');
+    const weaponIndicator = document.getElementById('weapon-indicator');
+
+    // ============================================
+    // CONSTANTS
+    // ============================================
+    const CFG = {
+        TILE: 32,
+        GRAVITY: 0.6,
+        JUMP_VELOCITY: -11,
+        MAX_FALL_SPEED: 12,
+        MOVE_SPEED: 3.2,
+        AIR_CONTROL: 0.7,
+        COYOTE_TIME: 6,
+        JUMP_BUFFER: 8,
+        ROOM_WIDTH: 25,
+        ROOM_HEIGHT: 15,
+        MAX_FLOORS: 20
+    };
+
+    // ============================================
+    // UTILITY FUNCTIONS
+    // ============================================
+    const rand = (min, max) => Math.random() * (max - min) + min;
+    const randInt = (min, max) => Math.floor(rand(min, max + 1));
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    // ============================================
+    // INPUT HANDLING
+    // ============================================
+    const Input = {
+        keys: {},
+        justPressed: {},
+        
+        init() {
+            window.addEventListener('keydown', (e) => {
+                if (!this.keys[e.code]) {
+                    this.justPressed[e.code] = true;
+                }
+                this.keys[e.code] = true;
+            });
+            
+            window.addEventListener('keyup', (e) => {
+                this.keys[e.code] = false;
+            });
+        },
+        
+        isDown(code) { return this.keys[code]; },
+        wasPressed(code) { return this.justPressed[code]; },
+        
+        clearFrame() {
+            this.justPressed = {};
+        }
+    };
+
+    // ============================================
+    // AUDIO SYSTEM (Web Audio API)
+    // ============================================
+    const Audio = {
+        ctx: null,
+        
+        init() {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        },
+        
+        playHit() {
+            if (!this.ctx) return;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.frequency.value = 200 + Math.random() * 100;
+            osc.type = 'square';
+            gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+            osc.start();
+            osc.stop(this.ctx.currentTime + 0.1);
+        },
+        
+        playBreak() {
+            if (!this.ctx) return;
+            const buffer = this.ctx.createBuffer(1, 4410, 44100);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < 4410; i++) {
+                data[i] = (Math.random() * 2 - 1) * (1 - i / 4410);
+            }
+            const src = this.ctx.createBufferSource();
+            src.buffer = buffer;
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+            src.connect(gain);
+            gain.connect(this.ctx.destination);
+            src.start();
+        },
+        
+        playJump() {
+            if (!this.ctx) return;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(300, this.ctx.currentTime + 0.1);
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+            osc.start();
+            osc.stop(this.ctx.currentTime + 0.1);
+        }
+    };
+
+    // ============================================
+    // PARTICLE SYSTEM
+    // ============================================
+    class Particle {
+        constructor(x, y, vx, vy, color, life) {
+            this.x = x;
+            this.y = y;
+            this.vx = vx;
+            this.vy = vy;
+            this.color = color;
+            this.life = life;
+            this.maxLife = life;
+        }
+        
+        update() {
+            this.x += this.vx;
+            this.y += this.vy;
+            this.vy += 0.3;
+            this.life--;
+        }
+        
+        draw(ctx, camX, camY) {
+            const alpha = this.life / this.maxLife;
+            ctx.fillStyle = this.color.replace(')', `, ${alpha})`).replace('rgb', 'rgba');
+            ctx.fillRect(this.x - camX, this.y - camY, 3, 3);
+        }
+    }
+
+    const particles = [];
+
+    function spawnParticles(x, y, count, color) {
+        for (let i = 0; i < count; i++) {
+            particles.push(new Particle(
+                x, y,
+                rand(-3, 3), rand(-5, -1),
+                color,
+                randInt(20, 40)
+            ));
+        }
+    }
+
+    // ============================================
+    // ENTITY BASE CLASS
+    // ============================================
+    class Entity {
+        constructor(x, y, w, h) {
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+            this.vx = 0;
+            this.vy = 0;
+            this.onGround = false;
+            this.facing = 1;
+        }
+        
+        get left() { return this.x; }
+        get right() { return this.x + this.w; }
+        get top() { return this.y; }
+        get bottom() { return this.y + this.h; }
+        get centerX() { return this.x + this.w / 2; }
+        get centerY() { return this.y + this.h / 2; }
+        
+        collides(other) {
+            return this.left < other.right &&
+                   this.right > other.left &&
+                   this.top < other.bottom &&
+                   this.bottom > other.top;
+        }
+    }
+
+    // ============================================
+    // PLAYER
+    // ============================================
+    class Player extends Entity {
+        constructor(x, y) {
+            super(x, y, 24, 32);
+            this.hp = 100;
+            this.maxHp = 100;
+            this.heat = 100;
+            this.hunger = 100;
+            this.gold = 0;
+            
+            this.weapon = {
+                name: 'Деревянный меч',
+                baseDmg: 8,
+                durability: 5,
+                hitCount: 0
+            };
+            
+            this.coyoteTimer = 0;
+            this.jumpBufferTimer = 0;
+            this.attackCooldown = 0;
+            this.invincible = 0;
+            this.hitStop = 0;
+            
+            this.str = 2;
+        }
+        
+        update(room) {
+            if (this.hitStop > 0) {
+                this.hitStop--;
+                return;
+            }
+            
+            // Movement
+            let moveX = 0;
+            if (Input.isDown('ArrowLeft') || Input.isDown('KeyA')) {
+                moveX = -1;
+                this.facing = -1;
+            }
+            if (Input.isDown('ArrowRight') || Input.isDown('KeyD')) {
+                moveX = 1;
+                this.facing = 1;
+            }
+            
+            const speed = this.onGround ? CFG.MOVE_SPEED : CFG.MOVE_SPEED * CFG.AIR_CONTROL;
+            this.vx = moveX * speed;
+            
+            // Jump buffer
+            if (Input.wasPressed('ArrowUp') || Input.wasPressed('KeyW') || Input.wasPressed('Space')) {
+                this.jumpBufferTimer = CFG.JUMP_BUFFER;
+            }
+            if (this.jumpBufferTimer > 0) this.jumpBufferTimer--;
+            
+            // Coyote time
+            if (this.onGround) {
+                this.coyoteTimer = CFG.COYOTE_TIME;
+            } else {
+                if (this.coyoteTimer > 0) this.coyoteTimer--;
+            }
+            
+            // Jump
+            if (this.jumpBufferTimer > 0 && this.coyoteTimer > 0) {
+                this.vy = CFG.JUMP_VELOCITY;
+                this.coyoteTimer = 0;
+                this.jumpBufferTimer = 0;
+                this.onGround = false;
+                Audio.playJump();
+                this.hunger = Math.max(0, this.hunger - 2);
+            }
+            
+            // Gravity
+            this.vy += CFG.GRAVITY;
+            if (this.vy > CFG.MAX_FALL_SPEED) this.vy = CFG.MAX_FALL_SPEED;
+            
+            // Attack
+            if (this.attackCooldown > 0) this.attackCooldown--;
+            if ((Input.wasPressed('KeyX') || Input.wasPressed('KeyZ')) && this.attackCooldown === 0) {
+                this.attack(room);
+            }
+            
+            // Move and collide
+            this.moveAndCollide(room);
+            
+            // Survival mechanics
+            this.heat = Math.max(0, this.heat - 0.016); // -1 per second
+            this.hunger = Math.max(0, this.hunger - 0.008); // -0.5 per second
+            
+            if (this.heat <= 0) {
+                this.hp -= 0.05; // -1 per 20 frames
+            }
+            
+            if (this.hunger <= 0) {
+                this.maxHp = 50;
+            } else {
+                this.maxHp = 100;
+            }
+            
+            // Invincibility
+            if (this.invincible > 0) this.invincible--;
+            
+            // Check lava
+            const tileX = Math.floor(this.centerX / CFG.TILE);
+            const tileY = Math.floor(this.bottom / CFG.TILE);
+            if (room.getTile(tileX, tileY) === 'LAVA') {
+                this.hp = 0;
+            }
+            
+            // Death
+            if (this.hp <= 0) {
+                return 'DEAD';
+            }
+            
+            return null;
+        }
+        
+        moveAndCollide(room) {
+            // Horizontal
+            this.x += this.vx;
+            const tiles = this.getOverlappingTiles(room);
+            for (const tile of tiles) {
+                if (room.isSolid(tile.x, tile.y)) {
+                    if (this.vx > 0) {
+                        this.x = tile.x * CFG.TILE - this.w;
+                    } else if (this.vx < 0) {
+                        this.x = (tile.x + 1) * CFG.TILE;
+                    }
+                    this.vx = 0;
+                }
+            }
+            
+            // Vertical
+            this.y += this.vy;
+            this.onGround = false;
+            const tiles2 = this.getOverlappingTiles(room);
+            for (const tile of tiles2) {
+                if (room.isSolid(tile.x, tile.y)) {
+                    if (this.vy > 0) {
+                        this.y = tile.y * CFG.TILE - this.h;
+                        this.onGround = true;
+                    } else if (this.vy < 0) {
+                        this.y = (tile.y + 1) * CFG.TILE;
+                    }
+                    this.vy = 0;
+                }
+            }
+        }
+        
+        getOverlappingTiles(room) {
+            const tiles = [];
+            const left = Math.floor(this.left / CFG.TILE);
+            const right = Math.floor(this.right / CFG.TILE);
+            const top = Math.floor(this.top / CFG.TILE);
+            const bottom = Math.floor(this.bottom / CFG.TILE);
+            
+            for (let x = left; x <= right; x++) {
+                for (let y = top; y <= bottom; y++) {
+                    tiles.push({ x, y });
+                }
+            }
+            return tiles;
+        }
+        
+        attack(room) {
+            this.attackCooldown = 20;
+            
+            const hitbox = {
+                x: this.facing > 0 ? this.right : this.left - 40,
+                y: this.top,
+                w: 40,
+                h: this.h
+            };
+            
+            const hitMultiplier = this.weapon.hitCount === 4 ? 2.5 : 1.0;
+            const damage = (this.weapon.baseDmg * hitMultiplier) + (this.str * 0.3);
+            
+            let hitSomething = false;
+            
+            // Hit enemies
+            for (const enemy of room.enemies) {
+                if (enemy.dead) continue;
+                if (hitbox.x < enemy.right && hitbox.x + hitbox.w > enemy.left &&
+                    hitbox.y < enemy.bottom && hitbox.y + hitbox.h > enemy.top) {
+                    enemy.takeDamage(damage, this.facing);
+                    hitSomething = true;
+                    this.hitStop = 4;
+                    spawnParticles(enemy.centerX, enemy.centerY, 5, 'rgb(139, 0, 0)');
+                }
+            }
+            
+            // Hit breakable walls
+            const tileX = Math.floor((hitbox.x + hitbox.w / 2) / CFG.TILE);
+            const tileY = Math.floor((hitbox.y + hitbox.h / 2) / CFG.TILE);
+            if (room.getTile(tileX, tileY) === 'BREAKABLE') {
+                room.setTile(tileX, tileY, 'AIR');
+                hitSomething = true;
+                spawnParticles(tileX * CFG.TILE + 16, tileY * CFG.TILE + 16, 10, 'rgb(100, 100, 100)');
+            }
+            
+            if (hitSomething) {
+                this.weapon.hitCount++;
+                Audio.playHit();
+                
+                if (this.weapon.hitCount >= 5) {
+                    this.weapon.name = 'Осколок';
+                    this.weapon.baseDmg = 1;
+                    this.weapon.durability = Infinity;
+                    Audio.playBreak();
+                    spawnParticles(this.centerX, this.centerY, 15, 'rgb(139, 69, 19)');
+                }
+            }
+        }
+        
+        takeDamage(amount) {
+            if (this.invincible > 0) return;
+            this.hp -= amount;
+            this.invincible = 60;
+            spawnParticles(this.centerX, this.centerY, 8, 'rgb(139, 0, 0)');
+        }
+        
+        draw(ctx, camX, camY) {
+            if (this.invincible > 0 && Math.floor(this.invincible / 4) % 2 === 0) return;
+            
+            const x = this.x - camX;
+            const y = this.y - camY;
+            
+            // Body
+            ctx.fillStyle = '#4a4a4a';
+            ctx.fillRect(x + 4, y + 8, 16, 20);
+            
+            // Head
+            ctx.fillStyle = '#e8e8d0';
+            ctx.beginPath();
+            ctx.arc(x + 12, y + 6, 6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Eyes
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x + 10, y + 5, 2, 2);
+            ctx.fillRect(x + 14, y + 5, 2, 2);
+            
+            // Weapon
+            const weaponColor = this.weapon.hitCount >= 4 ? '#ff4500' : '#8b4513';
+            ctx.fillStyle = weaponColor;
+            if (this.facing > 0) {
+                ctx.fillRect(x + 20, y + 12, 12, 3);
+            } else {
+                ctx.fillRect(x - 8, y + 12, 12, 3);
+            }
+            
+            // Legs
+            ctx.fillStyle = '#2b2b2b';
+            ctx.fillRect(x + 6, y + 28, 4, 4);
+            ctx.fillRect(x + 14, y + 28, 4, 4);
+        }
+    }
+
+    // ============================================
+    // ENEMIES
+    // ============================================
+    class Enemy extends Entity {
+        constructor(x, y, type) {
+            super(x, y, 24, 32);
+            this.type = type;
+            this.dead = false;
+            this.flashTimer = 0;
+            
+            switch (type) {
+                case 'GHOUL':
+                    this.hp = 20;
+                    this.maxHp = 20;
+                    this.damage = 8;
+                    this.speed = 1.2;
+                    this.goldDrop = randInt(1, 3);
+                    this.drop = 'MEAT';
+                    break;
+                case 'ARCHER':
+                    this.hp = 12;
+                    this.maxHp = 12;
+                    this.damage = 12;
+                    this.speed = 0;
+                    this.shootCooldown = 120;
+                    this.shootTimer = 0;
+                    this.goldDrop = randInt(2, 5);
+                    this.drop = 'COAL';
+                    break;
+                case 'SLIME':
+                    this.hp = 30;
+                    this.maxHp = 30;
+                    this.damage = 15;
+                    this.speed = 0.8;
+                    this.jumpTimer = 60;
+                    this.goldDrop = 0;
+                    this.drop = 'COOKED_MEAT';
+                    break;
+            }
+        }
+        
+        update(room, player) {
+            if (this.dead) return;
+            
+            this.flashTimer = Math.max(0, this.flashTimer - 1);
+            
+            const dx = player.centerX - this.centerX;
+            const dist = Math.abs(dx);
+            
+            switch (this.type) {
+                case 'GHOUL':
+                    if (dist < 300) {
+                        this.vx = Math.sign(dx) * this.speed;
+                        this.facing = Math.sign(dx);
+                    } else {
+                        this.vx = 0;
+                    }
+                    break;
+                    
+                case 'ARCHER':
+                    this.vx = 0;
+                    this.facing = Math.sign(dx);
+                    this.shootTimer++;
+                    if (this.shootTimer >= this.shootCooldown && dist < 400) {
+                        this.shoot(room, player);
+                        this.shootTimer = 0;
+                    }
+                    break;
+                    
+                case 'SLIME':
+                    this.vx = 0;
+                    this.jumpTimer--;
+                    if (this.jumpTimer <= 0 && this.onGround && dist < 200) {
+                        this.vy = -8;
+                        this.vx = Math.sign(dx) * 3;
+                        this.jumpTimer = 90;
+                    }
+                    break;
+            }
+            
+            // Gravity
+            this.vy += CFG.GRAVITY;
+            if (this.vy > CFG.MAX_FALL_SPEED) this.vy = CFG.MAX_FALL_SPEED;
+            
+            // Move
+            this.moveAndCollide(room);
+            
+            // Damage player
+            if (this.collides(player)) {
+                player.takeDamage(this.damage);
+            }
+        }
+        
+        moveAndCollide(room) {
+            this.x += this.vx;
+            const tiles = this.getOverlappingTiles(room);
+            for (const tile of tiles) {
+                if (room.isSolid(tile.x, tile.y)) {
+                    if (this.vx > 0) {
+                        this.x = tile.x * CFG.TILE - this.w;
+                    } else if (this.vx < 0) {
+                        this.x = (tile.x + 1) * CFG.TILE;
+                    }
+                    this.vx = 0;
+                }
+            }
+            
+            this.y += this.vy;
+            this.onGround = false;
+            const tiles2 = this.getOverlappingTiles(room);
+            for (const tile of tiles2) {
+                if (room.isSolid(tile.x, tile.y)) {
+                    if (this.vy > 0) {
+                        this.y = tile.y * CFG.TILE - this.h;
+                        this.onGround = true;
+                    } else if (this.vy < 0) {
+                        this.y = (tile.y + 1) * CFG.TILE;
+                    }
+                    this.vy = 0;
+                }
+            }
+        }
+        
+        getOverlappingTiles(room) {
+            const tiles = [];
+            const left = Math.floor(this.left / CFG.TILE);
+            const right = Math.floor(this.right / CFG.TILE);
+            const top = Math.floor(this.top / CFG.TILE);
+            const bottom = Math.floor(this.bottom / CFG.TILE);
+            
+            for (let x = left; x <= right; x++) {
+                for (let y = top; y <= bottom; y++) {
+                    tiles.push({ x, y });
+                }
+            }
+            return tiles;
+        }
+        
+        shoot(room, player) {
+            const projectile = {
+                x: this.centerX,
+                y: this.centerY,
+                vx: Math.sign(player.centerX - this.centerX) * 5,
+                vy: 0,
+                damage: this.damage,
+                life: 120
+            };
+            room.projectiles.push(projectile);
+        }
+        
+        takeDamage(amount, knockbackDir) {
+            this.hp -= amount;
+            this.flashTimer = 6;
+            this.vx = knockbackDir * 4;
+            
+            if (this.hp <= 0) {
+                this.die();
+            }
+        }
+        
+        die() {
+            this.dead = true;
+            spawnParticles(this.centerX, this.centerY, 15, 'rgb(232, 232, 208)');
+        }
+        
+        draw(ctx, camX, camY) {
+            if (this.dead) return;
+            
+            const x = this.x - camX;
+            const y = this.y - camY;
+            
+            if (this.flashTimer > 0) {
+                ctx.fillStyle = '#fff';
+            } else {
+                ctx.fillStyle = '#e8e8d0';
+            }
+            
+            switch (this.type) {
+                case 'GHOUL':
+                    // Skeleton
+                    ctx.beginPath();
+                    ctx.arc(x + 12, y + 8, 7, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(x + 9, y + 6, 3, 3);
+                    ctx.fillRect(x + 15, y + 6, 3, 3);
+                    
+                    ctx.strokeStyle = this.flashTimer > 0 ? '#fff' : '#e8e8d0';
+                    ctx.lineWidth = 2;
+                    for (let i = 0; i < 3; i++) {
+                        ctx.beginPath();
+                        ctx.moveTo(x + 8, y + 18 + i * 4);
+                        ctx.lineTo(x + 20, y + 18 + i * 4);
+                        ctx.stroke();
+                    }
+                    break;
+                    
+                case 'ARCHER':
+                    // Hooded figure
+                    ctx.fillStyle = this.flashTimer > 0 ? '#fff' : '#3a3a3a';
+                    ctx.fillRect(x + 4, y + 8, 16, 20);
+                    
+                    ctx.fillStyle = this.flashTimer > 0 ? '#fff' : '#e8e8d0';
+                    ctx.beginPath();
+                    ctx.arc(x + 12, y + 6, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(x + 10, y + 5, 2, 2);
+                    ctx.fillRect(x + 14, y + 5, 2, 2);
+                    break;
+                    
+                case 'SLIME':
+                    // Lava slime
+                    ctx.fillStyle = this.flashTimer > 0 ? '#fff' : '#ff4500';
+                    ctx.beginPath();
+                    ctx.ellipse(x + 12, y + 20, 12, 10, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#ff8c00';
+                    ctx.beginPath();
+                    ctx.arc(x + 8, y + 18, 3, 0, Math.PI * 2);
+                    ctx.arc(x + 16, y + 18, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+            }
+        }
+    }
+
+    // ============================================
+    // ROOM GENERATION
+    // ============================================
+    class Room {
+        constructor(type, floor) {
+            this.type = type;
+            this.floor = floor;
+            this.width = CFG.ROOM_WIDTH;
+            this.height = CFG.ROOM_HEIGHT;
+            this.tiles = [];
+            this.enemies = [];
+            this.projectiles = [];
+            this.items = [];
+            this.torches = [];
+            this.doors = { left: false, right: false, up: false, down: false };
+            
+            this.generate();
+        }
+        
+        generate() {
+            // Initialize with air
+            for (let y = 0; y < this.height; y++) {
+                this.tiles[y] = [];
+                for (let x = 0; x < this.width; x++) {
+                    this.tiles[y][x] = 'AIR';
+                }
+            }
+            
+            // Walls
+            for (let y = 0; y < this.height; y++) {
+                for (let x = 0; x < this.width; x++) {
+                    if (x === 0 || x === this.width - 1 || y === 0 || y === this.height - 1) {
+                        this.tiles[y][x] = 'STONE';
+                    }
+                }
+            }
+            
+            // Floor
+            for (let x = 1; x < this.width - 1; x++) {
+                this.tiles[this.height - 1][x] = 'STONE';
+                this.tiles[this.height - 2][x] = 'STONE';
+            }
+            
+            // Generate based on type
+            switch (this.type) {
+                case 'START':
+                    this.generateStart();
+                    break;
+                case 'COMBAT':
+                    this.generateCombat();
+                    break;
+                case 'PLATFORMING':
+                    this.generatePlatforming();
+                    break;
+                case 'TREASURE':
+                    this.generateTreasure();
+                    break;
+                case 'HEAT':
+                    this.generateHeat();
+                    break;
+                case 'EXIT':
+                    this.generateExit();
+                    break;
+            }
+        }
+        
+        generateStart() {
+            this.doors.right = true;
+            this.tiles[this.height - 2][this.width - 1] = 'AIR';
+            this.tiles[this.height - 3][this.width - 1] = 'AIR';
+            
+            // Torch
+            this.torches.push({
+                x: 3 * CFG.TILE,
+                y: (this.height - 4) * CFG.TILE
+            });
+        }
+        
+        generateCombat() {
+            this.doors.left = true;
+            this.doors.right = true;
+            
+            // Doors
+            this.tiles[this.height - 2][0] = 'AIR';
+            this.tiles[this.height - 3][0] = 'AIR';
+            this.tiles[this.height - 2][this.width - 1] = 'AIR';
+            this.tiles[this.height - 3][this.width - 1] = 'AIR';
+            
+            // Platforms
+            const platformCount = randInt(2, 4);
+            for (let i = 0; i < platformCount; i++) {
+                const px = randInt(4, this.width - 8);
+                const py = randInt(5, this.height - 5);
+                const pw = randInt(3, 6);
+                
+                for (let x = px; x < px + pw && x < this.width - 1; x++) {
+                    this.tiles[py][x] = 'STONE';
+                }
+            }
+            
+            // Enemies
+            const enemyCount = randInt(2, 4);
+            for (let i = 0; i < enemyCount; i++) {
+                const ex = randInt(5, this.width - 6) * CFG.TILE;
+                const ey = (this.height - 4) * CFG.TILE;
+                const types = ['GHOUL', 'GHOUL', 'ARCHER', 'SLIME'];
+                const type = types[randInt(0, types.length - 1)];
+                this.enemies.push(new Enemy(ex, ey, type));
+            }
+            
+            // Torch
+            if (Math.random() < 0.5) {
+                this.torches.push({
+                    x: randInt(5, this.width - 6) * CFG.TILE,
+                    y: (this.height - 5) * CFG.TILE
+                });
+            }
+        }
+        
+        generatePlatforming() {
+            this.doors.left = true;
+            this.doors.right = true;
+            
+            // Doors
+            this.tiles[this.height - 2][0] = 'AIR';
+            this.tiles[this.height - 3][0] = 'AIR';
+            this.tiles[this.height - 2][this.width - 1] = 'AIR';
+            this.tiles[this.height - 3][this.width - 1] = 'AIR';
+            
+            // Lava pit
+            const lavaStart = randInt(8, 12);
+            const lavaEnd = randInt(lavaStart + 3, Math.min(lavaStart + 6, this.width - 5));
+            for (let x = lavaStart; x < lavaEnd; x++) {
+                this.tiles[this.height - 1][x] = 'LAVA';
+                this.tiles[this.height - 2][x] = 'AIR';
+            }
+            
+            // Platforms over lava
+            let x = 3;
+            while (x < this.width - 5) {
+                const py = randInt(this.height - 6, this.height - 4);
+                const pw = randInt(2, 4);
+                
+                for (let i = 0; i < pw && x + i < this.width - 1; i++) {
+                    this.tiles[py][x + i] = 'STONE';
+                }
+                
+                x += pw + randInt(2, 3);
+            }
+            
+            // Torch
+            this.torches.push({
+                x: (lavaStart - 2) * CFG.TILE,
+                y: (this.height - 5) * CFG.TILE
+            });
+        }
+        
+        generateTreasure() {
+            this.doors.left = true;
+            this.doors.right = true;
+            
+            // Doors
+            this.tiles[this.height - 2][0] = 'AIR';
+            this.tiles[this.height - 3][0] = 'AIR';
+            this.tiles[this.height - 2][this.width - 1] = 'AIR';
+            this.tiles[this.height - 3][this.width - 1] = 'AIR';
+            
+            // Central platform
+            const px = Math.floor(this.width / 2) - 2;
+            const py = this.height - 5;
+            for (let x = px; x < px + 4; x++) {
+                this.tiles[py][x] = 'STONE';
+            }
+            
+            // Weapon chest
+            this.items.push({
+                x: (px + 1) * CFG.TILE,
+                y: (py - 1) * CFG.TILE,
+                type: 'WEAPON',
+                weapon: {
+                    name: 'Каменный топор',
+                    baseDmg: 12,
+                    durability: 5,
+                    hitCount: 0
+                }
+            });
+            
+            // Gold
+            for (let i = 0; i < 3; i++) {
+                this.items.push({
+                    x: randInt(5, this.width - 6) * CFG.TILE,
+                    y: (this.height - 3) * CFG.TILE,
+                    type: 'GOLD',
+                    amount: randInt(3, 8)
+                });
+            }
+            
+            // Torch
+            this.torches.push({
+                x: (px + 2) * CFG.TILE,
+                y: (py - 2) * CFG.TILE
+            });
+        }
+        
+        generateHeat() {
+            this.doors.left = true;
+            this.doors.right = true;
+            
+            // Doors
+            this.tiles[this.height - 2][0] = 'AIR';
+            this.tiles[this.height - 3][0] = 'AIR';
+            this.tiles[this.height - 2][this.width - 1] = 'AIR';
+            this.tiles[this.height - 3][this.width - 1] = 'AIR';
+            
+            // Lava pools
+            const poolCount = randInt(2, 3);
+            for (let i = 0; i < poolCount; i++) {
+                const px = randInt(4, this.width - 8);
+                const pw = randInt(3, 5);
+                for (let x = px; x < px + pw; x++) {
+                    this.tiles[this.height - 1][x] = 'LAVA';
+                }
+            }
+            
+            // Platforms
+            for (let i = 0; i < 2; i++) {
+                const px = randInt(5, this.width - 8);
+                const py = randInt(6, this.height - 5);
+                const pw = randInt(3, 5);
+                for (let x = px; x < px + pw; x++) {
+                    this.tiles[py][x] = 'STONE';
+                }
+            }
+            
+            // Torches
+            for (let i = 0; i < 3; i++) {
+                this.torches.push({
+                    x: randInt(3, this.width - 4) * CFG.TILE,
+                    y: (this.height - 5) * CFG.TILE
+                });
+            }
+        }
+        
+        generateExit() {
+            this.doors.left = true;
+            this.doors.up = true;
+            
+            // Door left
+            this.tiles[this.height - 2][0] = 'AIR';
+            this.tiles[this.height - 3][0] = 'AIR';
+            
+            // Exit portal
+            this.tiles[2][Math.floor(this.width / 2)] = 'EXIT';
+            this.tiles[3][Math.floor(this.width / 2)] = 'EXIT';
+            
+            // Platforms to reach exit
+            for (let i = 0; i < 3; i++) {
+                const px = Math.floor(this.width / 2) - 2 + i;
+                const py = 5 + i;
+                this.tiles[py][px] = 'STONE';
+            }
+            
+            // Torch
+            this.torches.push({
+                x: (Math.floor(this.width / 2) - 3) * CFG.TILE,
+                y: 4 * CFG.TILE
+            });
+        }
+        
+        getTile(x, y) {
+            if (x < 0 || x >= this.width || y < 0 || y >= this.height) return 'STONE';
+            return this.tiles[y][x];
+        }
+        
+        setTile(x, y, type) {
+            if (x >= 0 && x < this.width && y >= 0 && y < this.height) {
+                this.tiles[y][x] = type;
+            }
+        }
+        
+        isSolid(x, y) {
+            const tile = this.getTile(x, y);
+            return tile === 'STONE' || tile === 'BREAKABLE';
+        }
+        
+        update(player) {
+            // Update enemies
+            for (const enemy of this.enemies) {
+                enemy.update(this, player);
+            }
+            
+            // Update projectiles
+            for (let i = this.projectiles.length - 1; i >= 0; i--) {
+                const proj = this.projectiles[i];
+                proj.x += proj.vx;
+                proj.y += proj.vy;
+                proj.life--;
+                
+                // Check collision with player
+                if (proj.x > player.left && proj.x < player.right &&
+                    proj.y > player.top && proj.y < player.bottom) {
+                    player.takeDamage(proj.damage);
+                    this.projectiles.splice(i, 1);
+                    continue;
+                }
+                
+                // Check collision with walls
+                const tileX = Math.floor(proj.x / CFG.TILE);
+                const tileY = Math.floor(proj.y / CFG.TILE);
+                if (this.isSolid(tileX, tileY)) {
+                    this.projectiles.splice(i, 1);
+                    continue;
+                }
+                
+                if (proj.life <= 0) {
+                    this.projectiles.splice(i, 1);
+                }
+            }
+            
+            // Update items
+            for (let i = this.items.length - 1; i >= 0; i--) {
+                const item = this.items[i];
+                if (player.left < item.x + 24 && player.right > item.x &&
+                    player.top < item.y + 24 && player.bottom > item.y) {
+                    this.collectItem(item, player);
+                    this.items.splice(i, 1);
+                }
+            }
+            
+            // Update particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                if (particles[i].life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+        
+        collectItem(item, player) {
+            switch (item.type) {
+                case 'GOLD':
+                    player.gold += item.amount;
+                    break;
+                case 'WEAPON':
+                    player.weapon = item.weapon;
+                    break;
+                case 'MEAT':
+                    player.hunger = Math.min(100, player.hunger + 30);
+                    player.heat = Math.max(0, player.heat - 15);
+                    break;
+                case 'COOKED_MEAT':
+                    player.hunger = Math.min(100, player.hunger + 50);
+                    player.heat = Math.min(100, player.heat + 10);
+                    break;
+                case 'COAL':
+                    player.heat = Math.min(100, player.heat + 20);
+                    break;
+            }
+            spawnParticles(item.x + 12, item.y + 12, 10, 'rgb(255, 215, 0)');
+        }
+        
+        draw(ctx, camX, camY) {
+            // Draw tiles
+            for (let y = 0; y < this.height; y++) {
+                for (let x = 0; x < this.width; x++) {
+                    const tile = this.tiles[y][x];
+                    const screenX = x * CFG.TILE - camX;
+                    const screenY = y * CFG.TILE - camY;
+                    
+                    if (screenX < -CFG.TILE || screenX > canvas.width ||
+                        screenY < -CFG.TILE || screenY > canvas.height) continue;
+                    
+                    switch (tile) {
+                        case 'STONE':
+                            this.drawStone(screenX, screenY);
+                            break;
+                        case 'LAVA':
+                            this.drawLava(screenX, screenY);
+                            break;
+                        case 'EXIT':
+                            this.drawExit(screenX, screenY);
+                            break;
+                    }
+                }
+            }
+            
+            // Draw torches
+            for (const torch of this.torches) {
+                this.drawTorch(torch.x - camX, torch.y - camY);
+            }
+            
+            // Draw items
+            for (const item of this.items) {
+                this.drawItem(item, camX, camY);
+            }
+            
+            // Draw enemies
+            for (const enemy of this.enemies) {
+                enemy.draw(ctx, camX, camY);
+            }
+            
+            // Draw projectiles
+            for (const proj of this.projectiles) {
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(proj.x - camX - 3, proj.y - camY - 1, 6, 2);
+            }
+            
+            // Draw particles
+            for (const particle of particles) {
+                particle.draw(ctx, camX, camY);
+            }
+        }
+        
+        drawStone(x, y) {
+            ctx.fillStyle = '#2b2b2b';
+            ctx.fillRect(x, y, CFG.TILE, CFG.TILE);
+            
+            // Texture
+            for (let i = 0; i < 8; i++) {
+                const nx = x + Math.random() * CFG.TILE;
+                const ny = y + Math.random() * CFG.TILE;
+                ctx.fillStyle = `rgba(${60 + Math.random() * 30}, ${60 + Math.random() * 30}, ${60 + Math.random() * 30}, 0.3)`;
+                ctx.fillRect(nx, ny, 2, 2);
+            }
+            
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.strokeRect(x, y, CFG.TILE, CFG.TILE);
+        }
+        
+        drawLava(x, y) {
+            const time = Date.now() * 0.002;
+            const offset = Math.sin(time + x * 0.1) * 2;
+            
+            ctx.fillStyle = '#ff4500';
+            ctx.fillRect(x, y + offset, CFG.TILE, CFG.TILE);
+            
+            ctx.fillStyle = '#ff8c00';
+            ctx.fillRect(x + 4, y + 4 + offset, 8, 8);
+            ctx.fillRect(x + 20, y + 12 + offset, 6, 6);
+        }
+        
+        drawExit(x, y) {
+            const time = Date.now() * 0.005;
+            const alpha = 0.5 + Math.sin(time) * 0.3;
+            
+            ctx.fillStyle = `rgba(138, 43, 226, ${alpha})`;
+            ctx.fillRect(x, y, CFG.TILE, CFG.TILE);
+            
+            ctx.strokeStyle = '#9370db';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x + 2, y + 2, CFG.TILE - 4, CFG.TILE - 4);
+        }
+        
+        drawTorch(x, y) {
+            // Stick
+            ctx.fillStyle = '#8b4513';
+            ctx.fillRect(x + 14, y + 16, 4, 16);
+            
+            // Flame
+            const time = Date.now() * 0.01;
+            const flicker = Math.sin(time) * 2;
+            
+            ctx.fillStyle = '#ffd700';
+            ctx.beginPath();
+            ctx.ellipse(x + 16, y + 12 + flicker, 6, 10, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#ff8c00';
+            ctx.beginPath();
+            ctx.ellipse(x + 16, y + 14 + flicker, 4, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        drawItem(item, camX, camY) {
+            const x = item.x - camX;
+            const y = item.y - camY;
+            const bob = Math.sin(Date.now() * 0.005) * 3;
+            
+            switch (item.type) {
+                case 'GOLD':
+                    ctx.fillStyle = '#ffd700';
+                    ctx.beginPath();
+                    ctx.arc(x + 12, y + 12 + bob, 8, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#ffed4e';
+                    ctx.beginPath();
+                    ctx.arc(x + 10, y + 10 + bob, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case 'WEAPON':
+                    ctx.fillStyle = '#8b4513';
+                    ctx.fillRect(x + 4, y + 8 + bob, 16, 4);
+                    ctx.fillRect(x + 18, y + 4 + bob, 4, 12);
+                    break;
+                case 'MEAT':
+                    ctx.fillStyle = '#8b0000';
+                    ctx.fillRect(x + 6, y + 8 + bob, 12, 8);
+                    break;
+                case 'COOKED_MEAT':
+                    ctx.fillStyle = '#a0522d';
+                    ctx.fillRect(x + 6, y + 8 + bob, 12, 8);
+                    break;
+                case 'COAL':
+                    ctx.fillStyle = '#1a1a1a';
+                    ctx.beginPath();
+                    ctx.arc(x + 12, y + 12 + bob, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+            }
+        }
+    }
+
+    // ============================================
+    // LEVEL GENERATOR (No Dead Ends!)
+    // ============================================
+    class LevelGenerator {
+        constructor() {
+            this.rooms = [];
+            this.currentRoomIndex = 0;
+        }
+        
+        generateFloor(floor) {
+            this.rooms = [];
+            this.currentRoomIndex = 0;
+            
+            // CRITICAL: Generate linear path with guaranteed connections
+            const roomCount = 8 + Math.floor(floor / 3);
+            
+            // Room 0: START
+            const startRoom = new Room('START', floor);
+            startRoom.doors.right = true;
+            this.rooms.push(startRoom);
+            
+            // Rooms 1 to roomCount-2: Random types
+            for (let i = 1; i < roomCount - 1; i++) {
+                const types = ['COMBAT', 'COMBAT', 'PLATFORMING', 'TREASURE', 'HEAT'];
+                const type = types[randInt(0, types.length - 1)];
+                const room = new Room(type, floor);
+                
+                // GUARANTEE: Every room has left and right doors
+                room.doors.left = true;
+                room.doors.right = true;
+                
+                // Ensure door tiles are clear
+                room.tiles[room.height - 2][0] = 'AIR';
+                room.tiles[room.height - 3][0] = 'AIR';
+                room.tiles[room.height - 2][room.width - 1] = 'AIR';
+                room.tiles[room.height - 3][room.width - 1] = 'AIR';
+                
+                this.rooms.push(room);
+            }
+            
+            // Last room: EXIT
+            const exitRoom = new Room('EXIT', floor);
+            exitRoom.doors.left = true;
+            exitRoom.doors.up = true;
+            
+            // Ensure door tiles are clear
+            exitRoom.tiles[exitRoom.height - 2][0] = 'AIR';
+            exitRoom.tiles[exitRoom.height - 3][0] = 'AIR';
+            
+            this.rooms.push(exitRoom);
+            
+            // Scale enemies with floor
+            for (const room of this.rooms) {
+                for (const enemy of room.enemies) {
+                    enemy.hp += floor * 3;
+                    enemy.maxHp = enemy.hp;
+                    enemy.damage += floor;
+                }
+            }
+            
+            return this.rooms[0];
+        }
+        
+        getNextRoom() {
+            this.currentRoomIndex++;
+            if (this.currentRoomIndex >= this.rooms.length) {
+                return null; // Floor complete
+            }
+            return this.rooms[this.currentRoomIndex];
+        }
+        
+        getCurrentRoom() {
+            return this.rooms[this.currentRoomIndex];
+        }
+    }
+
+    // ============================================
+    // GAME STATE
+    // ============================================
+    const Game = {
+        state: 'MENU', // MENU, PLAYING, DEAD
+        player: null,
+        level: null,
+        currentRoom: null,
+        camera: { x: 0, y: 0 },
+        screenShake: 0,
+        floor: 1,
+        deathEcho: null,
+        
+        init() {
+            Input.init();
+            Audio.init();
+            
+            document.getElementById('startBtn').addEventListener('click', () => {
+                this.start();
+            });
+        },
+        
+        start() {
+            this.state = 'PLAYING';
+            this.floor = 1;
+            this.player = new Player(100, 300);
+            this.level = new LevelGenerator();
+            this.currentRoom = this.level.generateFloor(this.floor);
+            
+            menu.classList.add('hidden');
+            ui.classList.remove('hidden');
+            weaponIndicator.classList.remove('hidden');
+            
+            // Load death echo
+            const echoData = localStorage.getItem('cinderfall_echo');
+            if (echoData) {
+                this.deathEcho = JSON.parse(echoData);
+            }
+        },
+        
+        update() {
+            if (this.state !== 'PLAYING') return;
+            
+            const result = this.currentRoom.update(this.player);
+            
+            if (result === 'DEAD') {
+                this.die();
+                return;
+            }
+            
+            // Check exit
+            if (this.currentRoom.type === 'EXIT') {
+                const exitX = Math.floor(this.currentRoom.width / 2) * CFG.TILE;
+                const exitY = 2 * CFG.TILE;
+                
+                if (this.player.left < exitX + CFG.TILE && this.player.right > exitX &&
+                    this.player.top < exitY + CFG.TILE * 2 && this.player.bottom > exitY) {
+                    this.nextFloor();
+                }
+            }
+            
+            // Camera
+            const targetX = this.player.centerX - canvas.width / 2;
+            const targetY = this.player.centerY - canvas.height / 2;
+            this.camera.x = lerp(this.camera.x, targetX, 0.1);
+            this.camera.y = lerp(this.camera.y, targetY, 0.1);
+            
+            // Clamp camera
+            const maxX = this.currentRoom.width * CFG.TILE - canvas.width;
+            const maxY = this.currentRoom.height * CFG.TILE - canvas.height;
+            this.camera.x = clamp(this.camera.x, 0, maxX);
+            this.camera.y = clamp(this.camera.y, 0, maxY);
+            
+            // Screen shake
+            if (this.screenShake > 0) {
+                this.screenShake--;
+            }
+            
+            // Heat from torches/lava
+            for (const torch of this.currentRoom.torches) {
+                const dist = Math.hypot(this.player.centerX - torch.x, this.player.centerY - torch.y);
+                if (dist < 100) {
+                    this.player.heat = Math.min(100, this.player.heat + 0.1);
+                }
+            }
+            
+            // Update UI
+            this.updateUI();
+        },
+        
+        nextFloor() {
+            this.floor++;
+            if (this.floor > CFG.MAX_FLOORS) {
+                this.win();
+                return;
+            }
+            
+            this.currentRoom = this.level.generateFloor(this.floor);
+            this.player.x = 100;
+            this.player.y = 300;
+            this.player.hp = Math.min(100, this.player.hp + 20);
+            this.player.heat = Math.min(100, this.player.heat + 30);
+        },
+        
+        die() {
+            this.state = 'DEAD';
+            
+            // Save death echo
+            const echo = {
+                floor: this.floor,
+                roomIndex: this.level.currentRoomIndex,
+                x: this.player.x,
+                y: this.player.y,
+                cause: 'DEAD',
+                gold: this.player.gold
+            };
+            localStorage.setItem('cinderfall_echo', JSON.stringify(echo));
+            
+            // Show death screen
+            ui.classList.add('hidden');
+            weaponIndicator.classList.add('hidden');
+            
+            menu.classList.remove('hidden');
+            menu.querySelector('h1').textContent = 'ТЫ ПОГИБ';
+            menu.querySelector('h1').style.color = '#8b0000';
+            menu.querySelector('p').textContent = `Этаж: ${this.floor} | Золото: ${this.player.gold}`;
+            document.getElementById('startBtn').textContent = 'НАЧАТЬ ЗАНОВО';
+        },
+        
+        win() {
+            this.state = 'DEAD';
+            
+            menu.classList.remove('hidden');
+            ui.classList.add('hidden');
+            weaponIndicator.classList.add('hidden');
+            
+            menu.querySelector('h1').textContent = 'ПОБЕДА!';
+            menu.querySelector('h1').style.color = '#ffd700';
+            menu.querySelector('p').textContent = `Ты прошёл все ${CFG.MAX_FLOORS} этажей! Золото: ${this.player.gold}`;
+            document.getElementById('startBtn').textContent = 'ИГРАТЬ СНОВА';
+        },
+        
+        updateUI() {
+            document.querySelector('#hp .bar-fill').style.width = `${this.player.hp}%`;
+            document.querySelector('#hp .bar-label').textContent = `HP: ${Math.floor(this.player.hp)}`;
+            
+            document.querySelector('#heat .bar-fill').style.width = `${this.player.heat}%`;
+            document.querySelector('#heat .bar-label').textContent = `ТЕПЛО: ${Math.floor(this.player.heat)}`;
+            
+            document.querySelector('#hunger .bar-fill').style.width = `${this.player.hunger}%`;
+            document.querySelector('#hunger .bar-label').textContent = `ГОЛОД: ${Math.floor(this.player.hunger)}`;
+            
+            document.getElementById('gold-display').textContent = `Золото: ${this.player.gold}`;
+            document.getElementById('floor-display').textContent = `Этаж: ${this.floor}`;
+            
+            document.getElementById('weapon-name').textContent = this.player.weapon.name;
+            
+            const dots = document.querySelectorAll('.durability-dot');
+            dots.forEach((dot, i) => {
+                dot.className = 'durability-dot';
+                if (i < this.player.weapon.hitCount) {
+                    dot.classList.add('used');
+                }
+                if (this.player.weapon.hitCount === 4 && i === 4) {
+                    dot.classList.add('critical');
+                }
+            });
+        },
+        
+        render() {
+            ctx.fillStyle = '#0d0d0d';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (this.state !== 'PLAYING') return;
+            
+            // Apply screen shake
+            let shakeX = 0, shakeY = 0;
+            if (this.screenShake > 0) {
+                shakeX = rand(-3, 3);
+                shakeY = rand(-3, 3);
+            }
+            
+            ctx.save();
+            ctx.translate(shakeX, shakeY);
+            
+            // Draw room
+            this.currentRoom.draw(ctx, this.camera.x, this.camera.y);
+            
+            // Draw player
+            this.player.draw(ctx, this.camera.x, this.camera.y);
+            
+            ctx.restore();
+            
+            // Lighting overlay
+            this.renderLighting();
+        },
+        
+        renderLighting() {
+            // Dark overlay
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Cut out light sources
+            ctx.globalCompositeOperation = 'lighter';
+            
+            // Player light
+            this.drawLight(
+                this.player.centerX - this.camera.x,
+                this.player.centerY - this.camera.y,
+                80,
+                'rgba(255, 200, 100, 0.3)'
+            );
+            
+            // Torch lights
+            for (const torch of this.currentRoom.torches) {
+                const flicker = 120 + Math.sin(Date.now() * 0.01 + torch.x) * 20;
+                this.drawLight(
+                    torch.x + 16 - this.camera.x,
+                    torch.y + 16 - this.camera.y,
+                    flicker,
+                    'rgba(255, 140, 0, 0.6)'
+                );
+            }
+            
+            // Lava lights
+            for (let y = 0; y < this.currentRoom.height; y++) {
+                for (let x = 0; x < this.currentRoom.width; x++) {
+                    if (this.currentRoom.tiles[y][x] === 'LAVA') {
+                        this.drawLight(
+                            x * CFG.TILE + 16 - this.camera.x,
+                            y * CFG.TILE + 16 - this.camera.y,
+                            80,
+                            'rgba(255, 69, 0, 0.4)'
+                        );
+                    }
+                }
+            }
+            
+            ctx.globalCompositeOperation = 'source-over';
+        },
+        
+        drawLight(x, y, radius, color) {
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            gradient.addColorStop(0, color);
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+        }
+    };
+
+    // ============================================
+    // GAME LOOP
+    // ============================================
+    function gameLoop() {
+        Game.update();
+        Game.render();
+        Input.clearFrame();
+        requestAnimationFrame(gameLoop);
+    }
+
+    // ============================================
+    // INITIALIZATION
+    // ============================================
+    Game.init();
+    gameLoop();
+
+    </script>
+</body>
+</html>
